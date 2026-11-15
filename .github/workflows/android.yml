@@ -1,0 +1,71 @@
+# בונה APK חתום של "סטודיו חכם" מאותו index.html של האתר, ומפרסם אותו בעמוד ההורדות (Releases).
+# רץ כשמשתנה הדף או פרויקט האנדרואיד, או בלחיצה ידנית (Actions ← Build APK ← Run workflow).
+# אם עוד לא הוגדר הסוד KEYSTORE_PASS, הבנייה מדלגת בשקט (האתר ממשיך לעבוד כרגיל).
+name: Build APK
+on:
+  push:
+    branches: [main]
+    paths: ['index.html', 'android/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: יש מפתח חתימה?
+        id: key
+        env:
+          KEYSTORE_PASS: ${{ secrets.KEYSTORE_PASS }}
+        run: |
+          if [ -z "$KEYSTORE_PASS" ]; then echo "::notice::הסוד KEYSTORE_PASS עוד לא הוגדר (Settings ← Secrets and variables ← Actions). מדלג על בניית ה-APK."; echo "go=0" >> "$GITHUB_OUTPUT"; exit 0; fi
+          P="$(printf '%s' "$KEYSTORE_PASS" | tr -d ' \r\n\t')"
+          keytool -list -storetype PKCS12 -keystore android/release.p12 -storepass "$P" >/dev/null || { echo "::error::הסיסמה KEYSTORE_PASS לא מתאימה למפתח"; exit 1; }
+          echo "::add-mask::$P"; echo "KS_PASS=$P" >> "$GITHUB_ENV"; echo "go=1" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@v4
+        if: steps.key.outputs.go == '1'
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: הדף של האפליקציה (מאותו index.html של האתר)
+        if: steps.key.outputs.go == '1'
+        id: ver
+        run: |
+          python3 - <<'PY'
+          import os,re,shutil
+          s=open('index.html',encoding='utf8').read()
+          a='<meta charset="utf-8">'
+          assert a in s
+          s=s.replace(a,a+'\n<script src="app-bridge.js"></script>',1)
+          d='android/app/src/main/assets/www';os.makedirs(d,exist_ok=True)
+          open(d+'/index.html','w',encoding='utf8').write(s)
+          shutil.copy('android/web/app-bridge.js',d+'/app-bridge.js')
+          for f in ['icon-192.png','icon-512.png','manifest.json']:
+              if os.path.exists(f):shutil.copy(f,d+'/'+f)
+          v=re.search(r'class="ver">\D*(\d+\.\d+\.\d+)',s).group(1)
+          open(os.environ['GITHUB_OUTPUT'],'a').write('v='+v+'\n')
+          print('version',v)
+          PY
+      - name: בניית APK חתום
+        if: steps.key.outputs.go == '1'
+        working-directory: android
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/android/release.p12
+          KEYSTORE_PASS: ${{ env.KS_PASS }}
+          VERSION_NAME: ${{ steps.ver.outputs.v }}
+          VERSION_CODE: ${{ github.run_number }}
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee "$RUNNER_TEMP/gradle.log" || { M=$(grep -v "^\s*$" "$RUNNER_TEMP/gradle.log" | grep -B30 -A12 "What went wrong\|error:" | head -60 | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g'); echo "::error title=gradle::$M"; exit 1; }
+          cp app/build/outputs/apk/release/app-release.apk ../studio-chacham.apk
+      - name: פרסום בעמוד ההורדות
+        if: steps.key.outputs.go == '1'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.v }}
+          name: סטודיו חכם ${{ steps.ver.outputs.v }}
+          body: "סטודיו חכם ${{ steps.ver.outputs.v }} לאנדרואיד. מורידים את studio-chacham.apk ומתקינים."
+          files: studio-chacham.apk
+          make_latest: true
