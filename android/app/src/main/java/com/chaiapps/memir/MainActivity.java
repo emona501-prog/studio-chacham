@@ -66,7 +66,17 @@ public class MainActivity extends Activity {
     static final String BASE = "https://" + HOST + "/";
     static final int REQ_FILE = 11, REQ_MIC = 12;
 
-    private WebView web;
+    private BgWebView web;
+    private boolean working = false, shown = false;
+    static final int REQ_NOTE = 13;
+
+    /** while work is running the page is told it is still "visible", so the browser engine does not slow it down in the background */
+    static class BgWebView extends WebView {
+        boolean keep;
+        BgWebView(android.content.Context c) { super(c); }
+        @Override protected void onWindowVisibilityChanged(int v) { super.onWindowVisibilityChanged(keep ? View.VISIBLE : v); }
+        void sync() { super.onWindowVisibilityChanged(getWindowVisibility()); }
+    }
     private FrameLayout root;
     private ValueCallback<Uri[]> fileCb;
     private PermissionRequest pendingPerm;
@@ -83,7 +93,7 @@ public class MainActivity extends Activity {
         super.onCreate(b);
         root = new FrameLayout(this);
         root.setBackgroundColor(Color.parseColor("#181338"));
-        web = new WebView(this);
+        web = new BgWebView(this);
         root.addView(web, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         setContentView(root);
 
@@ -144,7 +154,41 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart(); shown = true;
+        try { ((android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(8); } catch (Exception e) { }
+    }
+
+    @Override
+    protected void onStop() { super.onStop(); shown = false; }
+
+    /** work started / ended: the background service with its notification, and "finished" when the person is elsewhere */
+    private void setWorking(boolean on) {
+        if (on == working) return;
+        working = on;
+        if (web != null) { web.keep = on; if (!on) web.sync(); }
+        try {
+            Intent sv = new Intent(this, WorkService.class);
+            if (on) {
+                if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                        && !getPreferences(MODE_PRIVATE).getBoolean("askedNote", false)) {
+                    getPreferences(MODE_PRIVATE).edit().putBoolean("askedNote", true).apply();
+                    requestPermissions(new String[] { android.Manifest.permission.POST_NOTIFICATIONS }, REQ_NOTE);
+                }
+                startForegroundService(sv);
+            } else {
+                stopService(sv);
+                if (!shown) {
+                    android.app.NotificationManager nm = (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                    nm.notify(8, WorkService.note(this, "סטודיו חכם", "העבודה הסתיימה ✓ געו כדי לחזור", false));
+                }
+            }
+        } catch (Exception e) { }
+    }
+
+    @Override
     protected void onDestroy() {
+        try { stopService(new Intent(this, WorkService.class)); } catch (Exception e) { }
         if (web != null) { web.destroy(); web = null; }
         super.onDestroy();
     }
@@ -465,6 +509,7 @@ public class MainActivity extends Activity {
             ui.post(() -> {
                 if (on) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                 else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                setWorking(on);
             });
         }
 
