@@ -66,6 +66,7 @@
 
   /* the back button: closes the open window first */
   window.__memirBack=function(){
+    var md=document.getElementById("miniDlg");if(md&&!md.hidden){md.hidden=true;return true}
     var ms=document.getElementById("mixScreen");
     var sh=[].slice.call(document.querySelectorAll(".sheet:not([hidden])")).filter(function(s){return s.offsetParent!==null||getComputedStyle(s).display!=="none"});
     if(sh.length){var s=sh[sh.length-1],b=s.querySelector('[id$="Close"]');
