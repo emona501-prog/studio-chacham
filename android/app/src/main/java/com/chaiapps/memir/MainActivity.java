@@ -272,6 +272,14 @@ public class MainActivity extends Activity {
                 h.put("Content-Length", String.valueOf(f.length()));
                 return resp(mimeOf(f.getName()), new FileInputStream(f), h);
             }
+            if (p.startsWith("/__nn/out/")) {   // the result of one piece from the app's separation engine
+                byte[] ob = Nn.take(p.substring(10));
+                if (ob == null) return notFound();
+                Map<String, String> h = headers(true);
+                h.put("Content-Length", String.valueOf(ob.length));
+                h.put("Cache-Control", "no-store");
+                return resp("application/octet-stream", new ByteArrayInputStream(ob), h);
+            }
             if (p.startsWith("/models/") || p.equals("/sw.js")) return notFound();
             return resp(mimeOf(p), getAssets().open("www" + p), headers(true));
         } catch (IOException e) {
@@ -503,6 +511,22 @@ public class MainActivity extends Activity {
                 return a.toString();
             }
         }
+
+        // ---- the app's separation engine (Android code, several cores)
+        @JavascriptInterface
+        public void nnPrepare(String url, String size) {
+            long n = 0; try { n = Long.parseLong(size); } catch (Exception e) { }
+            Nn.prepare(getApplicationContext(), url, n, MainActivity.this::js);
+        }
+
+        @JavascriptInterface
+        public String nnBegin(int bytes) { try { return Nn.begin(bytes); } catch (Throwable e) { return ""; } }
+
+        @JavascriptInterface
+        public boolean nnChunk(String id, String b64) { return Nn.chunk(id, b64); }
+
+        @JavascriptInterface
+        public void nnRun(String id, int df, int dt) { Nn.run(id, df, dt, MainActivity.this::js); }
 
         @JavascriptInterface
         public void keepAwake(boolean on) {
