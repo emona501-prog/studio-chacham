@@ -1,6 +1,6 @@
 // סטודיו חכם – עבודה גם בלי אינטרנט, והפרדה על כמה ליבות.
 // GitHub Pages לא שולח את שתי הכותרות שמאפשרות לדף לעבוד על כמה ליבות (COOP/COEP), אז ה-worker הזה מוסיף אותן.
-const CACHE='studio-v6';
+const CACHE='studio-v7';
 const SHELL=['./','index.html','manifest.json','icon-192.png','icon-512.png','icon-maskable-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(SHELL)).catch(()=>{}));self.skipWaiting()});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==CACHE&&x!=='memir-share').map(x=>caches.delete(x)))).then(()=>self.clients.claim()))});

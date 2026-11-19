@@ -95,15 +95,31 @@
       else t.textContent=(M.dl||"")+(p>=0?p+"%":"");
     };
   }
-  function check(){
+  var X={he:{btn:"🔄 בדיקת עדכון לאפליקציה",chk:"בודק…",none:"האפליקציה מעודכנת · גרסה ",off:"אין חיבור. נסה שוב כשיש אינטרנט",ver:"גרסת האפליקציה: "},
+         en:{btn:"🔄 Check for an app update",chk:"Checking…",none:"The app is up to date · version ",off:"No connection. Try again when online",ver:"App version: "},
+         fr:{btn:"🔄 Vérifier la mise à jour",chk:"Vérification…",none:"L'application est à jour · version ",off:"Pas de connexion. Réessayez en ligne",ver:"Version de l'application : "}}[LANG]||{};
+  /* manual=true: the person asked, so always look now and always answer */
+  function check(manual,say){
     var last=0;try{last=+localStorage.getItem("memir.updCheck")||0}catch(e){}
-    if(Date.now()-last<4*3600e3)return;
-    fetch("https://api.github.com/repos/"+REPO+"/releases/latest",{cache:"no-store"}).then(function(r){return r.ok?r.json():null}).then(function(j){
-      if(!j)return;try{localStorage.setItem("memir.updCheck",String(Date.now()))}catch(e){}
+    if(!manual&&Date.now()-last<30*60e3)return;
+    fetch("https://api.github.com/repos/"+REPO+"/releases/latest",{cache:"no-store"}).then(function(r){if(!r.ok)throw new Error("http");return r.json()}).then(function(j){
+      try{localStorage.setItem("memir.updCheck",String(Date.now()))}catch(e){}
       var v=String(j.tag_name||"").replace(/^v/,""),a=(j.assets||[]).filter(function(x){return /\.apk$/i.test(x.name)})[0];
-      if(v&&a&&newer(v,A.version()))banner(v,a.browser_download_url);
-    }).catch(function(){});
+      if(v&&a&&newer(v,A.version())){var old=document.getElementById("memirUpd");if(old&&manual)old.remove();banner(v,a.browser_download_url);say&&say((M.upd||"")+v)}
+      else say&&say((X.none||"")+A.version());
+    }).catch(function(){say&&say(X.off||"")});
   }
-  window.__memirCheckUpdate=function(){try{localStorage.removeItem("memir.updCheck")}catch(e){}check()};
-  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",function(){setTimeout(check,4000)});else setTimeout(check,4000);
+  window.__memirCheckUpdate=function(){check(true)};
+  function addButton(){
+    var ver=document.querySelector(".ver");if(!ver||document.getElementById("memirUpdBtn"))return;
+    var w=document.createElement("div");w.className="noi18n";w.dir=LANG==="he"?"rtl":"ltr";w.style.cssText="text-align:center;margin:8px 0 2px";
+    var b=document.createElement("button");b.type="button";b.id="memirUpdBtn";b.textContent=X.btn||"Update";
+    b.style.cssText="border:1.5px solid #8b7bf0;background:transparent;color:inherit;border-radius:12px;padding:9px 16px;font:600 14px Assistant,Arial,sans-serif";
+    var st=document.createElement("div");st.style.cssText="font-size:12.5px;opacity:.75;margin-top:5px";st.textContent=(X.ver||"")+A.version();
+    b.onclick=function(){b.disabled=true;st.textContent=X.chk||"";check(true,function(m){st.textContent=m;b.disabled=false})};
+    w.appendChild(b);w.appendChild(st);ver.parentNode.insertBefore(w,ver.nextSibling);
+  }
+  function start(){addButton();setTimeout(check,3000)}
+  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",start);else start();
+  document.addEventListener("visibilitychange",function(){if(!document.hidden)check()});
 })();
