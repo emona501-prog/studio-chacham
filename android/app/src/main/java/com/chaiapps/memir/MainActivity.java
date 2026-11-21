@@ -86,6 +86,9 @@ public class MainActivity extends Activity {
     private int sinkSeq = 0;
 
     static class Sink { String name, mime; File file; OutputStream out; }
+    /** the film chosen for "shorten a video": the page shows it, the app cuts it from here */
+    private volatile Uri vidUri;
+    private volatile boolean vidExpect;
 
     // ------------------------------------------------------------------ start
     @Override
@@ -439,6 +442,7 @@ public class MainActivity extends Activity {
                 for (int i = 0; i < out.length; i++) out[i] = cd.getItemAt(i).getUri();
             } else if (data.getData() != null) out = new Uri[] { data.getData() };
         }
+        if (vidExpect) { vidExpect = false; vidUri = (out != null && out.length > 0) ? out[0] : null; }
         fileCb.onReceiveValue(out);
         fileCb = null;
     }
@@ -598,6 +602,43 @@ public class MainActivity extends Activity {
                 s.file.delete();
                 return "";
             }
+        }
+
+        /** the next file the page asks for is the film to shorten */
+        @JavascriptInterface
+        public void vidExpect() { vidExpect = true; vidUri = null; }
+
+        @JavascriptInterface
+        public boolean vidReady() { return vidUri != null; }
+
+        /** cut the chosen film between two times (seconds) and save it to Downloads, or open the share menu */
+        @JavascriptInterface
+        public void vidTrim(final double startSec, final double endSec, final String name, final String mode) {
+            final Uri u = vidUri;
+            if (u == null) { js("window.__vid&&window.__vid('err','nofile')"); return; }
+            new Thread(() -> {
+                File dir = new File(getCacheDir(), "out");
+                if (!dir.exists()) dir.mkdirs();
+                int seq; synchronized (sinks) { seq = ++sinkSeq; }
+                File f = new File(dir, "vid" + seq + ".mp4");
+                try {
+                    Vid.trim(MainActivity.this, u, f, (long) (startSec * 1e6), (long) (endSec * 1e6),
+                            pct -> js("window.__vid&&window.__vid('prog'," + pct + ")"));
+                    Sink s = new Sink();
+                    s.name = name.replaceAll("[\\\\/:*?\"<>|]", "_");
+                    s.mime = "video/mp4";
+                    s.file = f;
+                    s.out = new java.io.ByteArrayOutputStream();
+                    String id = "v" + seq;
+                    synchronized (sinks) { sinks.put(id, s); }
+                    String saved = saveEnd(id, "share".equals(mode) ? "share" : "save");
+                    if (saved == null || saved.isEmpty()) js("window.__vid&&window.__vid('err','save')");
+                    else js("window.__vid&&window.__vid('done'," + JSONObject.quote(saved) + ")");
+                } catch (Throwable e) {
+                    f.delete();
+                    js("window.__vid&&window.__vid('err'," + JSONObject.quote(String.valueOf(e.getMessage())) + ")");
+                }
+            }).start();
         }
 
         @JavascriptInterface
